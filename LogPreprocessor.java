@@ -3,10 +3,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -52,39 +49,37 @@ public class LogPreprocessor {
 
 
         Map<Long, String> countsMap = cappedSideChannelLines.parallelStream()
-                .collect(Collectors.toMap(s -> Long.parseLong(s.split("\\|")[0]), s -> s.split("\\|")[3], (s1, s2) -> s1));
+                .collect(Collectors.toMap(s -> Long.parseLong(s.split("\\|")[0]), s -> s.split("\\|")[3], (s1, s2) -> s1 + "," + s2));
+        Map<Long, List<Long>> countListMap = new HashMap<>();
+
+
         List<Long> counts = countsMap.keySet().stream().sorted().collect(Collectors.toList());
+        counts.forEach(i -> countListMap.put(i, new ArrayList<>()));
+        countsMap.keySet().forEach(i -> countListMap.get(i).addAll(Arrays.stream(countsMap.get(i).split(",")).collect(Collectors.toList())
+                .stream().map(Long::valueOf).collect(Collectors.toList())));
 
         List<Long> groundTruthCounts = new ArrayList<>();
 
         for (int i = 0; i < groundTruthLines.size(); i++) {
             String groundTruthLine = groundTruthLines.get(i);
-            Long searchTiming = -1l;
             if (groundTruthLine.contains("-1")) {
                 Long timing = Long.parseLong(groundTruthLine.split("\\|")[0]);
-                for (int j = 0; j < 500; j++) {
-                    if (!groundTruthCounts.contains(timing + j) && counts.contains(timing + j)) {
-                        searchTiming = timing + j;
-                        break;
-                    }
-//                        if (!groundTruthCounts.contains(timing - j) && counts.contains(timing - j)) {
-//                            searchTiming = timing - j;
-//                            break;
-//                        }
+                if (!counts.contains(timing)) {
+                    continue;
                 }
-
-                if (searchTiming != -1l) {
-                    groundTruthCounts.add(searchTiming);
-                    groundTruthLine = groundTruthLine.replace("-1", countsMap.get(searchTiming));
+                List<Long> matchingCounts = countListMap.get(timing);
+                Optional<Long> matchingCount = matchingCounts.stream().filter(c -> !groundTruthCounts.contains(c)).findFirst();
+                if (matchingCount.isPresent()) {
+                    groundTruthCounts.add(matchingCount.get());
+                    groundTruthLine = groundTruthLine.replace("-1", matchingCount.get().toString());
                     groundTruthLines.set(i, groundTruthLine);
-
                 }
 
 
             }
         }
         List<String> tempList = new ArrayList<>(groundTruthLines);
-        tempList.stream().filter(s -> s.contains("-1")).forEach(s -> groundTruthLines.remove(s));
+        tempList.stream().filter(s -> s.contains("-1")).forEach(groundTruthLines::remove);
 
 //        Long minCount = groundTruthLines.stream().mapToLong(s -> Long.parseLong(s.split("\\|")[2])).min().getAsLong() - 1l;
 //        Long maxCount = groundTruthLines.stream().mapToLong(s -> Long.parseLong(s.split("\\|")[2])).max().getAsLong() + 1l;
